@@ -9,6 +9,8 @@
 using namespace std;
 
 ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, string outFilePath, string audioDevice) : rrs(rrs), vs(vs), status(RecordingStatus::recording), outFilePath(outFilePath), audioDevice(audioDevice) {
+
+
     try {
         initCommon();
         std::cout << "-> Finished initCommon" << std::endl;
@@ -21,6 +23,9 @@ ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, st
             initAudioVariables();
             std::cout << "-> Finished initAudioSource" << std::endl;
         }
+
+        initSnapshotPrepare();
+
         initOutputFile();
 #if defined __linux__
         memoryCheck_init(3000);  // ERROR
@@ -30,7 +35,10 @@ ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, st
     }
 }
 
-ScreenRecorder::~ScreenRecorder() {
+ScreenRecorder::~ScreenRecorder()
+{
+    snapshot_thread.get()->join();
+
     captureVideo_thread.get()->join();
     elaborate_thread.get()->join();
     if (vs.audioOn) {
@@ -44,6 +52,11 @@ ScreenRecorder::~ScreenRecorder() {
     avformat_free_context(avFmtCtx);
     avio_close(avFmtCtxOut->pb);
     std::cout << "Screen Recorder deallocated" << endl;
+}
+
+void ScreenRecorder::snapshot(const std::string& filename)
+{
+
 }
 
 function<void(void)> ScreenRecorder::make_error_handler(function<void(void)> f) {
@@ -232,27 +245,34 @@ void ScreenRecorder::initVideoSource() {
     avRawOptions = nullptr;
 
 #if defined _WIN32
-    if (vs.fps > 15) {
-        vs.fps = 15;
-    }
+//    if (vs.fps > 15) {
+//        vs.fps = 15;
+//    }
 #endif
     av_dict_set(&avRawOptions, "video_size", (to_string(rrs.width) + "x" + to_string(rrs.height)).c_str(), 0);
     av_dict_set(&avRawOptions, "framerate", to_string(vs.fps).c_str(), 0);
     //av_dict_set(&avRawOptions, "show_region", "1", 0);
-    av_dict_set(&avRawOptions, "probesize", "30M", 0);
+    av_dict_set(&avRawOptions, "probesize", "100M", 0);
     //av_dict_set(&avRawOptions, "maxrate", "200k", 0);
     //av_dict_set(&avRawOptions, "minrate", "0", 0);
-    //av_dict_set(&avRawOptions, "bufsize", "2000k", 0);
+    av_dict_set(&avRawOptions, "bufsize", "2000M", 0);
+    av_dict_set(&avRawOptions,"rtbufsize","512M",0);
 
 #if defined _WIN32
-    AVInputFormat *avInputFmt = av_find_input_format("gdigrab");
+
+
+    //const AVInputFormat *avInputFmt = av_find_input_format("gdigrab");
+    const AVInputFormat *avInputFmt = av_find_input_format("dshow");
+
     if (avInputFmt == nullptr) {
         throw logic_error{"av_find_input_format not found......"};
     }
     av_dict_set(&avRawOptions, "offset_x", to_string(rrs.offset_x).c_str(), 0);
     av_dict_set(&avRawOptions, "offset_y", to_string(rrs.offset_y).c_str(), 0);
 
-    if (avformat_open_input(&avFmtCtx, "desktop", avInputFmt, &avRawOptions) != 0) {
+   // if (avformat_open_input(&avFmtCtx, "desktop", avInputFmt, &avRawOptions) != 0) {
+    if (avformat_open_input(&avFmtCtx, "video=SC0710 PCI, Video 01 Capture", avInputFmt,nullptr) != 0) {
+
         throw logic_error{err_msg_baddevice_video};
     }
 
@@ -290,7 +310,7 @@ void ScreenRecorder::initVideoSource() {
     string video_format = "crop=" + to_string(rrs.width) + ":" + to_string(rrs.height) + ":" + to_string(rrs.offset_x) + ":" + to_string(rrs.offset_y);
     cout << video_format << endl;
     av_dict_set(&avRawOptions, "preset", "ultrafast", 0);
-    av_dict_set(&avRawOptions, "pixel_format", "uyvy422", 0); /* yuv420p */
+    av_dict_set(&avRawOptions, "pixel_format", "yuyv422", 0); /* yuv420Pp */
     av_dict_set(&avRawOptions, "vf", video_format.c_str(), 0);
     av_dict_set(&avRawOptions, "probesize", "42M", 0);
 
@@ -343,7 +363,7 @@ void ScreenRecorder::linuxVideoResume() {
 
     char *displayName = getenv("DISPLAY");
 
-    AVInputFormat *avInputFmt = av_find_input_format("x11grab");
+    const AVInputFormat *avInputFmt = av_find_input_format("x11grab");
 
     if (avInputFmt == nullptr) {
         throw logic_error{"av_find_input_format not found......"};
@@ -398,7 +418,7 @@ void ScreenRecorder::initVideoVariables() {
     avEncoderCtx->codec_id = AV_CODEC_ID_H264;
     avEncoderCtx->codec_type = AVMEDIA_TYPE_VIDEO;
     avEncoderCtx->pix_fmt = AV_PIX_FMT_YUV420P;
-    avEncoderCtx->bit_rate = 4000;
+    avEncoderCtx->bit_rate = 32*1024*1024;
     avEncoderCtx->width = (int)(rrs.width * vs.quality) / 32 * 32;
     avEncoderCtx->height = (int)(rrs.height * vs.quality) / 2 * 2;
     avEncoderCtx->time_base.num = 1;
@@ -419,7 +439,7 @@ void ScreenRecorder::initVideoVariables() {
         av_opt_set(avEncoderCtx, "chroma_qp_offset", "4", 0);
         av_opt_set(avEncoderCtx, "rc", "crf", 0);
         av_opt_set(avEncoderCtx, "rc_lookahead", "40", 0);
-        av_opt_set(avEncoderCtx, "crf", "10.0", 0);
+        av_opt_set(avEncoderCtx, "crf", "23.0", 0);
         av_opt_set(avEncoderCtx, "threads", "8", 0);
     }
 
@@ -503,7 +523,7 @@ void ScreenRecorder::initAudioSource() {
 #if defined _WIN32
     audioDevice = "audio=" + audioDevice;
 
-    AudioInputFormat = av_find_input_format("dshow");
+    AudioInputFormat =  av_find_input_format("dshow");
     int value = avformat_open_input(&FormatContextAudio, audioDevice.c_str(), AudioInputFormat, &AudioOptions);
     if (value != 0) {
         throw runtime_error(err_msg_baddevice_audio);
@@ -611,8 +631,8 @@ void ScreenRecorder::decodeAndEncode() {
     avOutFrame = av_frame_alloc();
     av_image_fill_arrays(avOutFrame->data, avOutFrame->linesize, (uint8_t *)outBuf, avEncoderCtx->pix_fmt, avEncoderCtx->width, avEncoderCtx->height, 1);
 
-    AVPacket pkt;
-    av_init_packet(&pkt);
+    AVPacket* pkt = av_packet_alloc();
+    //av_init_packet(&pkt);
 
     AVPacket *avRawPkt;
     int i = 1;
@@ -646,17 +666,17 @@ void ScreenRecorder::decodeAndEncode() {
                     flag = avcodec_send_frame(avEncoderCtx, avYUVFrame);
 
                     if (flag >= 0) {
-                        got_picture = avcodec_receive_packet(avEncoderCtx, &pkt);
+                        got_picture = avcodec_receive_packet(avEncoderCtx, pkt);
                         //Fine ENCODING
                         if (got_picture == 0) {
                             if (!gotFirstValidVideoPacket) {
                                 gotFirstValidVideoPacket = true;
                             }
-                            pkt.pts = (int64_t)i * (int64_t)30 * (int64_t)30 * (int64_t)100 / (int64_t)vs.fps;
-                            pkt.dts = (int64_t)i * (int64_t)30 * (int64_t)30 * (int64_t)100 / (int64_t)vs.fps;
+                            pkt->pts = (int64_t)i * (int64_t)30 * (int64_t)30 * (int64_t)100 / (int64_t)vs.fps;
+                            pkt->dts = (int64_t)i * (int64_t)30 * (int64_t)30 * (int64_t)100 / (int64_t)vs.fps;
 
                             unique_lock<mutex> write_lock_ul{write_lock};
-                            if (av_write_frame(avFmtCtxOut, &pkt) < 0) {
+                            if (av_write_frame(avFmtCtxOut, pkt) < 0) {
                                 throw runtime_error("Error in writing file");
                             }
                             write_lock_ul.unlock();
@@ -683,7 +703,8 @@ void ScreenRecorder::decodeAndEncode() {
         }
     }
 
-    av_packet_unref(&pkt);
+    av_packet_unref(pkt);
+    av_packet_free(&pkt);
     std::cout << "END DECODEANDENCODE" << endl;
 }
 
@@ -732,8 +753,10 @@ void ScreenRecorder::initAudioVariables() {
     // INIT CODEC CONTEXT OUTPUT
     AudioCodecContextOut->codec_id = AV_CODEC_ID_AAC;
     AudioCodecContextOut->bit_rate = 128000;
-    AudioCodecContextOut->channels = AudioCodecContextIn->channels;
-    AudioCodecContextOut->channel_layout = av_get_default_channel_layout(AudioCodecContextOut->channels);
+    //AudioCodecContextOut->channels = AudioCodecContextIn->channels;
+    av_channel_layout_default(&AudioCodecContextOut->ch_layout,AudioCodecContextIn->ch_layout.nb_channels);
+
+
     AudioCodecContextOut->sample_fmt = AudioCodecOut->sample_fmts ? AudioCodecOut->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
     AudioCodecContextOut->time_base = {1, AudioCodecContextIn->sample_rate};
     AudioCodecContextOut->strict_std_compliance = FF_COMPLIANCE_EXPERIMENTAL;
@@ -756,6 +779,15 @@ void ScreenRecorder::initAudioVariables() {
     avcodec_parameters_from_context(avFmtCtxOut->streams[audioIndexOut]->codecpar, AudioCodecContextOut);
 }
 
+void ScreenRecorder::initSnapshotPrepare()
+{
+    snapshot_thread = make_unique<thread>([this]() {
+        this->make_error_handler([this]() {
+            this->snapshotWorker() ;
+        })();
+    });
+}
+
 void ScreenRecorder::initOutputFile() {
     // create an empty video file
     if (!(avFmtCtxOut->flags & AVFMT_NOFILE)) {
@@ -773,7 +805,7 @@ void ScreenRecorder::initOutputFile() {
 }
 
 void ScreenRecorder::windowsResumeAudio() {
-    AudioInputFormat = av_find_input_format("dshow");
+     AudioInputFormat = av_find_input_format("dshow");
     int value = avformat_open_input(&FormatContextAudio, audioDevice.c_str(), AudioInputFormat, &AudioOptions);
     if (value != 0) {
         //cerr << "Error in opening input device (audio)" << endl;
@@ -786,7 +818,7 @@ void ScreenRecorder::windowsResumeAudio() {
         throw runtime_error("Couldn't find audio stream information.");
     }
 
-    // FIND AUDIO STREAM INDEX
+    // FIND AUDIO STREAM INnDEX
     int StreamsNumber = (int)FormatContextAudio->nb_streams;
     for (int i = 0; i < StreamsNumber; i++) {
         if (FormatContextAudio->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
@@ -814,7 +846,7 @@ void ScreenRecorder::acquireAudio() {
     if (!inPacket) {
         throw runtime_error("Cannot allocate an AVPacket for encoded video");
     }
-    av_init_packet(inPacket);
+    //av_init_packet(inPacket);
 
     //allocate space for a packet
     rawFrame = av_frame_alloc();
@@ -833,17 +865,32 @@ void ScreenRecorder::acquireAudio() {
     }
     //init the resampler
     SwrContext *swrContext = nullptr;
-    swrContext = swr_alloc_set_opts(swrContext,
-                                    av_get_default_channel_layout(AudioCodecContextOut->channels),
-                                    AudioCodecContextOut->sample_fmt,
-                                    AudioCodecContextOut->sample_rate,
-                                    av_get_default_channel_layout(AudioCodecContextIn->channels),
-                                    AudioCodecContextIn->sample_fmt,
-                                    AudioCodecContextIn->sample_rate,
-                                    0,
-                                    nullptr);
+//    swrContext = swr_alloc_set_opts(swrContext,
+//                                    av_get_default_channel_layout(AudioCodecContextOut->channels),
+//                                    AudioCodecContextOut->sample_fmt,
+//                                    AudioCodecContextOut->sample_rate,
+//                                    av_get_default_channel_layout(AudioCodecContextIn->channels),
+//                                    AudioCodecContextIn->sample_fmt,
+//                                    AudioCodecContextIn->sample_rate,
+//                                    0,
+//                                    nullptr);
 
-    if (!swrContext) {
+//    if (!swrContext) {
+    int error;
+
+    /*
+         * Create a resampler context for the conversion.
+         * Set the conversion parameters.
+         */
+    error = swr_alloc_set_opts2(&swrContext,
+                                &AudioCodecContextOut->ch_layout,
+                                AudioCodecContextOut->sample_fmt,
+                                AudioCodecContextOut->sample_rate,
+                                &AudioCodecContextIn->ch_layout,
+                                AudioCodecContextIn->sample_fmt,
+                                AudioCodecContextIn->sample_rate,
+                                0, NULL);
+    if (error < 0) {
         throw runtime_error("Cannot allocate the resample context");
     }
     if (swr_init(swrContext) < 0) {
@@ -915,7 +962,7 @@ void ScreenRecorder::acquireAudio() {
                 add_samples_to_fifo(resampledData, rawFrame->nb_samples);
 
                 //raw frame ready
-                av_init_packet(outPacket);
+                //av_init_packet(outPacket);
                 outPacket->data = nullptr;
                 outPacket->size = 0;
 
@@ -925,7 +972,7 @@ void ScreenRecorder::acquireAudio() {
                 }
 
                 scaledFrame->nb_samples = AudioCodecContextOut->frame_size;
-                scaledFrame->channel_layout = AudioCodecContextOut->channel_layout;
+                scaledFrame->ch_layout = AudioCodecContextOut->ch_layout;
                 scaledFrame->format = AudioCodecContextOut->sample_fmt;
                 scaledFrame->sample_rate = AudioCodecContextOut->sample_rate;
                 av_frame_get_buffer(scaledFrame, 0);
@@ -975,12 +1022,20 @@ void ScreenRecorder::acquireAudio() {
             }
         }
     }
+
+    av_packet_unref(inPacket);
+    av_packet_free(&inPacket)    ;
     cout << "END ACQUIREAUDIO" << endl;
+}
+
+void ScreenRecorder::snapshotWorker()
+{
+
 }
 
 void ScreenRecorder::init_fifo() {
     /* Create the FIFO buffer based on the specified output sample format. */
-    if (!(AudioFifoBuff = av_audio_fifo_alloc(AudioCodecContextOut->sample_fmt, AudioCodecContextOut->channels, 1))) {
+    if (!(AudioFifoBuff = av_audio_fifo_alloc(AudioCodecContextOut->sample_fmt, AudioCodecContextOut->ch_layout.nb_channels, 1))) {
         throw runtime_error("Could not allocate FIFO");
     }
 }
@@ -999,12 +1054,12 @@ void ScreenRecorder::add_samples_to_fifo(uint8_t **converted_input_samples, cons
 }
 
 void ScreenRecorder::initConvertedSamples(uint8_t ***converted_input_samples, AVCodecContext *output_codec_context, int frame_size) {
-    if (!(*converted_input_samples = (uint8_t **)calloc(output_codec_context->channels, sizeof(**converted_input_samples)))) {
+    if (!(*converted_input_samples = (uint8_t **)calloc(output_codec_context->ch_layout.nb_channels, sizeof(**converted_input_samples)))) {
         throw runtime_error("Could not allocate converted input sample pointers");
     }
     /* Allocate memory for the samples of all channels in one consecutive
   * block for convenience. */
-    if (av_samples_alloc(*converted_input_samples, nullptr, output_codec_context->channels, frame_size, output_codec_context->sample_fmt, 0) < 0) {
+    if (av_samples_alloc(*converted_input_samples, nullptr, output_codec_context->ch_layout.nb_channels, frame_size, output_codec_context->sample_fmt, 0) < 0) {
         throw runtime_error("could not allocate memory for samples in all channels (audio)");
     }
 }

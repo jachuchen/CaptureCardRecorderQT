@@ -45,8 +45,10 @@ class MainWindow : public QMainWindow {
     void on_horizontalSlider_sliderMoved(int position);
     void on_lineEditPath_textEdited(const QString &arg1);
     void on_comboBox_activated(const QString &arg1);
-
-   signals:
+    
+    void on_pushButtonSnapshot_clicked();
+    
+signals:
     void signal_close();
     void signal_show(bool);
     void signal_recording(bool);

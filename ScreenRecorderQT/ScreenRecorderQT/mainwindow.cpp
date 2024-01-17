@@ -28,27 +28,34 @@ condition_variable cv;
 
 void MainWindow::alignValues() {
     ///rrs values
-    if (ui->pushButtonFullscreen->isChecked()) {
-        rrs.width = screen->size().width();
-        rrs.height = screen->size().height();
-        rrs.offset_x = 0;
-        rrs.offset_y = 0;
+//    if (ui->pushButtonFullscreen->isChecked()) {
+//        rrs.width = screen->size().width();
+//        rrs.height = screen->size().height();
+//        rrs.offset_x = 0;
+//        rrs.offset_y = 0;
 
-        rrs.screen_number = 0;
-    } else {
-        rrs.height = areaSelector->getHeight();
-        rrs.width = areaSelector->getWidth();
-        rrs.offset_x = areaSelector->getX();
-        rrs.offset_y = areaSelector->getY();
-    }
+//        rrs.screen_number = 0;
+//    } else {
+//        rrs.height = areaSelector->getHeight();
+//        rrs.width = areaSelector->getWidth();
+//        rrs.offset_x = areaSelector->getX();
+//        rrs.offset_y = areaSelector->getY();
+//    }
 
-    ///vs values
+
     if (ui->radioButton30->isChecked())
         vs.fps = 30;
     else if (ui->radioButton24->isChecked())
         vs.fps = 24;
     else if (ui->radioButton60->isChecked())
         vs.fps = 60;
+
+    rrs.height = 1080;
+    rrs.width = 1920;
+    rrs.offset_x = 0;
+    rrs.offset_y = 0;
+    vs.fps = 60 ;
+
 
     setQualityANDCompression(ui->horizontalSlider->value());
 
@@ -352,6 +359,11 @@ void MainWindow::on_toolButton_clicked() {
 }
 
 //////MAIN ACTIONS//////
+void MainWindow::on_pushButtonSnapshot_clicked()
+{
+    
+}
+
 void MainWindow::on_pushButtonStart_clicked() {
     if (ui->lineEditPath->text().isEmpty()) {
         QMessageBox::information(this, tr("Invalid Path"),
@@ -446,7 +458,7 @@ void MainWindow::on_pushButtonStop_clicked() {
     ui->pushButtonStop->setEnabled(false);
 
     auto waiting_thread = std::thread{[&]() {
-        unique_lock ul{m};
+        unique_lock<std::mutex> ul{m};
         cv.wait(ul, []() { return !screenRecorder; });
         defaultButtonProperties();
         showOrHideWindow(false);
@@ -493,3 +505,5 @@ void MainWindow::on_lineEditPath_textEdited(const QString &arg1) {
 void MainWindow::on_comboBox_activated(const QString &arg1) {
     deviceName = arg1.toStdString();
 }
+
+

@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>400</width>
+    <width>462</width>
     <height>446</height>
    </rect>
   </property>
@@ -26,7 +26,7 @@
    <string>MainWindow</string>
   </property>
   <property name="windowIcon">
-   <iconset resource="resource.qrc">
+   <iconset>
     <normaloff>:/icons/icon.svg</normaloff>:/icons/icon.svg</iconset>
   </property>
   <widget class="QWidget" name="centralwidget">
@@ -34,7 +34,7 @@
     <item>
      <widget class="QTabWidget" name="tabWidget">
       <property name="currentIndex">
-       <number>2</number>
+       <number>1</number>
       </property>
       <widget class="QWidget" name="tab_1">
        <attribute name="title">
@@ -459,6 +459,13 @@
       </property>
       <layout class="QHBoxLayout" name="horizontalLayout_5">
        <item>
+        <widget class="QPushButton" name="pushButtonSnapshot">
+         <property name="text">
+          <string>Snapshot (to do)</string>
+         </property>
+        </widget>
+       </item>
+       <item>
         <widget class="QPushButton" name="pushButtonStart">
          <property name="text">
           <string>Start Recoding</string>
@@ -487,6 +494,11 @@
         </widget>
        </item>
       </layout>
+      <zorder>pushButtonStop</zorder>
+      <zorder>pushButtonStart</zorder>
+      <zorder>pushButtonPause</zorder>
+      <zorder>pushButtonResume</zorder>
+      <zorder>pushButtonSnapshot</zorder>
      </widget>
     </item>
    </layout>
@@ -497,8 +509,6 @@
    </property>
   </action>
  </widget>
- <resources>
-  <include location="resource.qrc"/>
- </resources>
+ <resources/>
  <connections/>
 </ui>

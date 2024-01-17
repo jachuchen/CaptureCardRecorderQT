@@ -81,6 +81,7 @@ class ScreenRecorder {
 public:
     ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, string outFilePath, string audioDevice = "noDevice");
     ~ScreenRecorder();
+    void snapshot(const std::string& filename);
     void record();
     void stopRecording();
     void pauseRecording();
@@ -96,7 +97,7 @@ private:
     function<void(void)> make_error_handler(function<void(void)> f);
 
     //settings variables
-    RecordingRegionSettings rrs;
+    RecordingRegionSettings rrs ={1920,1080,0,0,0};
     VideoSettings vs;
     RecordingStatus status;
     string outFilePath;
@@ -114,6 +115,7 @@ private:
     unique_ptr<thread> captureVideo_thread;
     unique_ptr<thread> captureAudio_thread;
     unique_ptr<thread> elaborate_thread;
+    unique_ptr<thread> snapshot_thread;
     bool gotFirstValidVideoPacket;
 
     //video variables
@@ -121,14 +123,14 @@ private:
     AVCodecContext *avRawCodecCtx;
     AVCodecContext *avEncoderCtx;
     AVDictionary *avRawOptions;
-    AVCodec *avDecodec;
-    AVCodec *avEncodec;
+    const AVCodec *avDecodec;
+    const AVCodec *avEncodec;
     struct SwsContext *swsCtx;
     queue<AVPacket *> avRawPkt_queue;
     mutex avRawPkt_queue_mutex;
     int videoIndex;
     AVFrame *avYUVFrame;
-    AVOutputFormat *fmt;
+    const AVOutputFormat *fmt;
     AVStream *video_st;
     int64_t pts_offset;
 
@@ -137,7 +139,7 @@ private:
     AVFormatContext *FormatContextAudio;
     AVCodecContext *AudioCodecContextIn;
     AVCodecContext *AudioCodecContextOut;
-    AVInputFormat *AudioInputFormat;
+    const AVInputFormat *AudioInputFormat;
     const AVCodec *AudioCodecIn;
     const AVCodec *AudioCodecOut;
     AVAudioFifo *AudioFifoBuff;
@@ -176,11 +178,12 @@ private:
     void initVideoVariables();
     void initAudioSource();
     void initAudioVariables();
+    void initSnapshotPrepare();
     void initOutputFile();
     void getRawPackets();
     void decodeAndEncode();
-
     void acquireAudio();
+    void snapshotWorker();
     void init_fifo();
     void add_samples_to_fifo(uint8_t **, const int);
     void initConvertedSamples(uint8_t ***, AVCodecContext *, int);
