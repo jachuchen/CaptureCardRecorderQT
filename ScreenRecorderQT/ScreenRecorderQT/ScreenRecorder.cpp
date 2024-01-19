@@ -23,9 +23,6 @@ ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, st
             initAudioVariables();
             std::cout << "-> Finished initAudioSource" << std::endl;
         }
-
-        initSnapshotPrepare();
-
         initOutputFile();
 #if defined __linux__
         memoryCheck_init(3000);  // ERROR
@@ -37,7 +34,6 @@ ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, st
 
 ScreenRecorder::~ScreenRecorder()
 {
-    snapshot_thread.get()->join();
 
     captureVideo_thread.get()->join();
     elaborate_thread.get()->join();
@@ -56,7 +52,161 @@ ScreenRecorder::~ScreenRecorder()
 
 void ScreenRecorder::snapshot(const std::string& filename)
 {
+    // Initialize FFmpeg
+    //av_register_all();
+    avdevice_register_all();
 
+    // Open the input device (webcam)
+    AVFormatContext* formatContext = nullptr;
+    if (avformat_open_input(&formatContext, "video=SC0710 PCI, Video 01 Capture", av_find_input_format("dshow"), nullptr) != 0) {
+        // Handle error
+        return ;
+    }
+
+    // Find the video stream information
+    if (avformat_find_stream_info(formatContext, nullptr) < 0) {
+        // Handle error
+        return ;
+    }
+
+    const AVCodec* codec = nullptr;
+    int videoStreamIndex = -1;
+
+    // Find the video stream and its codec
+    for (unsigned int i = 0; i < formatContext->nb_streams; i++) {
+        if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            videoStreamIndex = i;
+            codec = avcodec_find_decoder(formatContext->streams[i]->codecpar->codec_id);
+            break;
+        }
+    }
+
+    if (!codec || videoStreamIndex == -1) {
+        // Handle error
+        return ;
+    }
+
+    AVCodecContext* codecContext = avcodec_alloc_context3(codec);
+    avcodec_parameters_to_context(codecContext, formatContext->streams[videoStreamIndex]->codecpar);
+
+    // Open the codec
+    if (avcodec_open2(codecContext, codec, nullptr) < 0) {
+        // Handle error
+        return ;
+    }
+
+    // Allocate video frame and initialize buffer for image data
+    AVFrame* frame = av_frame_alloc();
+    uint8_t* buffer = (uint8_t*)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_RGB24, codecContext->width, codecContext->height, 1));
+    av_image_fill_arrays(frame->data, frame->linesize, buffer, AV_PIX_FMT_RGB24, codecContext->width, codecContext->height, 1);
+
+    // Read frames from the webcam
+    AVPacket packet;
+    SwsContext* swsContext = sws_getContext(codecContext->width, codecContext->height, AV_PIX_FMT_YUYV422,
+                                            codecContext->width, codecContext->height,AV_PIX_FMT_RGB24,
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+
+
+
+    if (!swsContext) {
+        // Handle error
+        return ;
+    }
+
+    int sws_flags = SWS_BICUBIC;
+    AVFrame* result_frame = av_frame_alloc();
+    result_frame->format = AV_PIX_FMT_RGB24;
+    result_frame->width = codecContext->width;
+    result_frame->height = codecContext->height;
+
+    auto ret = av_frame_get_buffer(result_frame, 1);
+    if (0 != ret)
+        return ;
+
+
+
+    if (av_read_frame(formatContext, &packet) >= 0) {
+        if (packet.stream_index == videoStreamIndex) {
+            // Decode video packet
+            avcodec_send_packet(codecContext, &packet);
+            avcodec_receive_frame(codecContext, frame);
+
+            // Convert the frame to RGB
+            sws_scale(swsContext, frame->data, frame->linesize, 0, codecContext->height, result_frame->data, result_frame->linesize);
+
+            //FILE* outputFile = fopen("c:/temp/output.yuyv", "wb");
+            //if (outputFile) {
+            //	fwrite(result_frame->data[0], 1, result_frame->width * result_frame->height * 3, outputFile);
+            //	fclose(outputFile);
+            //}
+            const AVCodec* encCodec = avcodec_find_encoder(AV_CODEC_ID_PNG);
+
+            if (!encCodec) {
+                return ;
+            }
+            AVCodecContext * encCtx = avcodec_alloc_context3(encCodec);
+            if (!encCtx) {
+                return ;
+            }
+            encCtx->bit_rate = codecContext->bit_rate;
+            encCtx->codec_type = AVMEDIA_TYPE_VIDEO;
+            encCtx->thread_count = 1;
+            encCtx->width = codecContext->width;
+            encCtx->height = codecContext->height;
+            int fps = formatContext->streams[videoStreamIndex]->r_frame_rate.num / formatContext->streams[videoStreamIndex]->r_frame_rate.den;
+            encCtx->time_base =  { 1, fps };
+            encCtx->framerate =  { fps, 1 };
+            encCtx->gop_size = codecContext->gop_size;
+            encCtx->max_b_frames = codecContext->max_b_frames;
+            encCtx->pix_fmt = AV_PIX_FMT_RGB24;
+            int ret = avcodec_parameters_from_context(formatContext->streams[videoStreamIndex]->codecpar, encCtx);
+            if (ret < 0) {
+                return ;
+            }
+            ret = avcodec_open2(encCtx, encCodec, nullptr);
+            if (ret < 0) {
+                return ;
+            }
+            ret = avcodec_send_frame(encCtx, result_frame);
+            if (ret < 0) {
+                return ;
+            }
+            AVPacket pkt;
+            av_init_packet(&pkt);
+            ret = avcodec_receive_packet(encCtx, &pkt);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
+                return ;
+            else if (ret < 0) {
+                return ;
+            }
+
+
+            if (ret >= 0)
+            {
+                FILE * outPng = fopen(filename.c_str(), "wb");
+                fwrite(pkt.data, pkt.size, 1, outPng);
+                fclose(outPng);
+            }
+            av_packet_unref(&pkt);
+
+
+
+        }
+
+        av_packet_unref(&packet);
+    }
+
+    // Cleanup
+    avformat_close_input(&formatContext);
+    avcodec_free_context(&codecContext);
+    av_frame_free(&frame);
+
+    av_frame_free(&result_frame);
+
+    sws_freeContext(swsContext);
+    av_free(buffer);
+
+    return ;
 }
 
 function<void(void)> ScreenRecorder::make_error_handler(function<void(void)> f) {
@@ -78,16 +228,18 @@ void ScreenRecorder::record() {
     audio_stop = false;
     gotFirstValidVideoPacket = false;
 
-    elaborate_thread = make_unique<thread>([this]() {
-        this->make_error_handler([this]() {
-            this->decodeAndEncode();
-        })();
-    });
     captureVideo_thread = make_unique<thread>([this]() {
         this->make_error_handler([this]() {
             this->getRawPackets();
         })();
     });
+
+    elaborate_thread = make_unique<thread>([this]() {
+        this->make_error_handler([this]() {
+            this->decodeAndEncode();
+        })();
+    });
+
     if (vs.audioOn) {
         captureAudio_thread = std::make_unique<std::thread>([this]() {
             this->make_error_handler([this]() {
@@ -97,7 +249,7 @@ void ScreenRecorder::record() {
     }
 
     unique_lock<mutex> error_queue_ul{error_queue_m};
-    error_queue_cv.wait(error_queue_ul, [&]() { return (!error_queue.empty() || terminated_threads == (vs.audioOn ? 3 : 2)); });
+    error_queue_cv.wait(error_queue_ul, [&]() { return (!error_queue.empty() || terminated_threads == (vs.audioOn ? 2 : 1)); });
     if (!error_queue.empty()) {
         this->stopRecording();
         if (vs.audioOn) {
@@ -188,14 +340,14 @@ void ScreenRecorder::resumeRecording() {
 
 string ScreenRecorder::statusToString() {
     switch (status) {
-        case RecordingStatus::paused:
-            return "Pause";
-        case RecordingStatus::recording:
-            return "Recording";
-        case RecordingStatus::stopped:
-            return "Stopped";
-        default:
-            return "Undefined Status";
+    case RecordingStatus::paused:
+        return "Pause";
+    case RecordingStatus::recording:
+        return "Recording";
+    case RecordingStatus::stopped:
+        return "Stopped";
+    default:
+        return "Undefined Status";
     }
 }
 
@@ -256,8 +408,8 @@ void ScreenRecorder::initVideoSource() {
     //av_dict_set(&avRawOptions, "maxrate", "200k", 0);
     //av_dict_set(&avRawOptions, "minrate", "0", 0);
     av_dict_set(&avRawOptions, "bufsize", "2000M", 0);
-    av_dict_set(&avRawOptions,"rtbufsize","512M",0);
 
+    av_dict_set_int(&avRawOptions, "rtbufsize", 3041280 * 100, 0);//默认大小3041280
 #if defined _WIN32
 
 
@@ -270,7 +422,7 @@ void ScreenRecorder::initVideoSource() {
     av_dict_set(&avRawOptions, "offset_x", to_string(rrs.offset_x).c_str(), 0);
     av_dict_set(&avRawOptions, "offset_y", to_string(rrs.offset_y).c_str(), 0);
 
-   // if (avformat_open_input(&avFmtCtx, "desktop", avInputFmt, &avRawOptions) != 0) {
+    // if (avformat_open_input(&avFmtCtx, "desktop", avInputFmt, &avRawOptions) != 0) {
     if (avformat_open_input(&avFmtCtx, "video=SC0710 PCI, Video 01 Capture", avInputFmt,nullptr) != 0) {
 
         throw logic_error{err_msg_baddevice_video};
@@ -307,7 +459,7 @@ void ScreenRecorder::initVideoSource() {
     Screen *screen = DefaultScreenOfDisplay(display);
     cout << XPlanesOfScreen(screen) << " " << XHeightOfScreen(screen) << " " << screen->width << " " << screen->height << endl; */
 
-    string video_format = "crop=" + to_string(rrs.width) + ":" + to_string(rrs.height) + ":" + to_string(rrs.offset_x) + ":" + to_string(rrs.offset_y);
+        string video_format = "crop=" + to_string(rrs.width) + ":" + to_string(rrs.height) + ":" + to_string(rrs.offset_x) + ":" + to_string(rrs.offset_y);
     cout << video_format << endl;
     av_dict_set(&avRawOptions, "preset", "ultrafast", 0);
     av_dict_set(&avRawOptions, "pixel_format", "yuyv422", 0); /* yuv420Pp */
@@ -596,13 +748,18 @@ void ScreenRecorder::getRawPackets() {
             // STATUS MUTEX UNLOCK
             ul.unlock();
 
-            avRawPkt = av_packet_alloc();
-            value = av_read_frame(avFmtCtx, avRawPkt);
-            if (value >= 0 && avRawPkt->size) {
-                //throw runtime_error(("Error in getting RawPacket" + to_string(value)).c_str());
-                unique_lock<mutex> avRawPkt_queue_ul{avRawPkt_queue_mutex};
-                avRawPkt_queue.push(avRawPkt);
-                avRawPkt_queue_ul.unlock();
+            if (status == RecordingStatus::recording)
+            {
+                avRawPkt = av_packet_alloc();
+                value = av_read_frame(avFmtCtx, avRawPkt);
+                if (value >= 0 && avRawPkt->size)
+                {
+
+                    //throw runtime_error(("Error in getting RawPacket" + to_string(value)).c_str());
+                    unique_lock<mutex> avRawPkt_queue_ul{avRawPkt_queue_mutex};
+                    avRawPkt_queue.push(avRawPkt);
+                    avRawPkt_queue_ul.unlock();
+                }
             }
 
 #if defined __linux__
@@ -779,15 +936,6 @@ void ScreenRecorder::initAudioVariables() {
     avcodec_parameters_from_context(avFmtCtxOut->streams[audioIndexOut]->codecpar, AudioCodecContextOut);
 }
 
-void ScreenRecorder::initSnapshotPrepare()
-{
-    snapshot_thread = make_unique<thread>([this]() {
-        this->make_error_handler([this]() {
-            this->snapshotWorker() ;
-        })();
-    });
-}
-
 void ScreenRecorder::initOutputFile() {
     // create an empty video file
     if (!(avFmtCtxOut->flags & AVFMT_NOFILE)) {
@@ -805,7 +953,7 @@ void ScreenRecorder::initOutputFile() {
 }
 
 void ScreenRecorder::windowsResumeAudio() {
-     AudioInputFormat = av_find_input_format("dshow");
+    AudioInputFormat = av_find_input_format("dshow");
     int value = avformat_open_input(&FormatContextAudio, audioDevice.c_str(), AudioInputFormat, &AudioOptions);
     if (value != 0) {
         //cerr << "Error in opening input device (audio)" << endl;
@@ -865,17 +1013,17 @@ void ScreenRecorder::acquireAudio() {
     }
     //init the resampler
     SwrContext *swrContext = nullptr;
-//    swrContext = swr_alloc_set_opts(swrContext,
-//                                    av_get_default_channel_layout(AudioCodecContextOut->channels),
-//                                    AudioCodecContextOut->sample_fmt,
-//                                    AudioCodecContextOut->sample_rate,
-//                                    av_get_default_channel_layout(AudioCodecContextIn->channels),
-//                                    AudioCodecContextIn->sample_fmt,
-//                                    AudioCodecContextIn->sample_rate,
-//                                    0,
-//                                    nullptr);
+    //    swrContext = swr_alloc_set_opts(swrContext,
+    //                                    av_get_default_channel_layout(AudioCodecContextOut->channels),
+    //                                    AudioCodecContextOut->sample_fmt,
+    //                                    AudioCodecContextOut->sample_rate,
+    //                                    av_get_default_channel_layout(AudioCodecContextIn->channels),
+    //                                    AudioCodecContextIn->sample_fmt,
+    //                                    AudioCodecContextIn->sample_rate,
+    //                                    0,
+    //                                    nullptr);
 
-//    if (!swrContext) {
+    //    if (!swrContext) {
     int error;
 
     /*
@@ -1028,10 +1176,6 @@ void ScreenRecorder::acquireAudio() {
     cout << "END ACQUIREAUDIO" << endl;
 }
 
-void ScreenRecorder::snapshotWorker()
-{
-
-}
 
 void ScreenRecorder::init_fifo() {
     /* Create the FIFO buffer based on the specified output sample format. */

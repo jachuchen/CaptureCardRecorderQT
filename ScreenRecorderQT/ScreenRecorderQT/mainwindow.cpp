@@ -361,7 +361,7 @@ void MainWindow::on_toolButton_clicked() {
 //////MAIN ACTIONS//////
 void MainWindow::on_pushButtonSnapshot_clicked()
 {
-    
+    screenRecorder->snapshot("c:/temp/test.png");
 }
 
 void MainWindow::on_pushButtonStart_clicked() {

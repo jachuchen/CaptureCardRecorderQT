@@ -115,7 +115,6 @@ private:
     unique_ptr<thread> captureVideo_thread;
     unique_ptr<thread> captureAudio_thread;
     unique_ptr<thread> elaborate_thread;
-    unique_ptr<thread> snapshot_thread;
     bool gotFirstValidVideoPacket;
 
     //video variables
@@ -150,6 +149,7 @@ private:
     int audioIndex;  // AUDIO STREAM INDEX
     int audioIndexOut;
 
+
     int64_t NextAudioPts = 0;
     int AudioSamplesCount = 0;
     int AudioSamples = 0;
@@ -157,6 +157,8 @@ private:
 
     int EncodeFrameCnt = 0;
     int64_t pts = 0;
+
+
 
     // HANDLER PAUSE/RESUME/STOP
     condition_variable cv_audio;
@@ -178,12 +180,10 @@ private:
     void initVideoVariables();
     void initAudioSource();
     void initAudioVariables();
-    void initSnapshotPrepare();
     void initOutputFile();
     void getRawPackets();
     void decodeAndEncode();
     void acquireAudio();
-    void snapshotWorker();
     void init_fifo();
     void add_samples_to_fifo(uint8_t **, const int);
     void initConvertedSamples(uint8_t ***, AVCodecContext *, int);
