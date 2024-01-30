@@ -249,7 +249,7 @@ void ScreenRecorder::record() {
     }
 
     unique_lock<mutex> error_queue_ul{error_queue_m};
-    error_queue_cv.wait(error_queue_ul, [&]() { return (!error_queue.empty() || terminated_threads == (vs.audioOn ? 2 : 1)); });
+    error_queue_cv.wait(error_queue_ul, [&]() { return (!error_queue.empty() || terminated_threads == (vs.audioOn ? 3 : 1)); });
     if (!error_queue.empty()) {
         this->stopRecording();
         if (vs.audioOn) {
