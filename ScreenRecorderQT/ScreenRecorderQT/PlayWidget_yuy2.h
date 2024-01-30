@@ -14,19 +14,19 @@
 #define ATTRIB_TEXTURE 4
 
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+//#ifdef __cplusplus
+//extern "C" {
+//#endif
 
-#include <libavcodec/avcodec.h>
-#include <libavformat/avformat.h>
-#include <libavutil/imgutils.h>
-#include <libswscale/swscale.h>
-#include <libavdevice/avdevice.h>
+//#include <libavcodec/avcodec.h>
+//#include <libavformat/avformat.h>
+//#include <libavutil/imgutils.h>
+//#include <libswscale/swscale.h>
+//#include <libavdevice/avdevice.h>
 
-#ifdef __cplusplus
-}
-#endif
+//#ifdef __cplusplus
+//}
+//#endif
 
 
 class CPlayWidget_yuy2: public QOpenGLWidget, protected QOpenGLFunctions
@@ -34,10 +34,10 @@ class CPlayWidget_yuy2: public QOpenGLWidget, protected QOpenGLFunctions
 {
     Q_OBJECT
 public:
+    unsigned char* m_pBufYuvHeightp =NULL;
     CPlayWidget_yuy2 (QWidget *parent);
     ~CPlayWidget_yuy2();
-    void PlayOneFrame(BYTE* pFrameBuffer, ULONG nFrameBufferLen);
-    QElapsedTimer timer;
+    void PlayOneFrame(char* pFrameBuffer, ulong nFrameBufferLen);
 signals:
     void updateUi();
 public slots:
@@ -49,7 +49,7 @@ protected:
 private:
     uint   imgwidth;
     uint   imgheight;
-    unsigned char* m_pBufYuvHeightp =NULL;
+
     FILE* m_pYuvFile = NULL;
 
     QOpenGLShaderProgram* m_program;
@@ -64,17 +64,17 @@ private:
     QOpenGLTexture *texture;
 
 private:
-    AVFormatContext* formatContext = nullptr;
-    AVCodecContext* codecContext = nullptr;
-    AVFrame* frame = nullptr;
-    const AVCodec* codec = nullptr;
-    int videoStreamIndex = -1;
-    uint8_t* buffer;
+//    AVFormatContext* formatContext = nullptr;
+//    AVCodecContext* codecContext = nullptr;
+//    AVFrame* frame = nullptr;
+//    const AVCodec* codec = nullptr;
+//    int videoStreamIndex = -1;
+//    uint8_t* buffer;
 
-    AVPacket packet;
-    GLuint textureID;
-    int initFFmpeg();
-    bool readFrame();
+//    AVPacket packet;
+//    GLuint textureID;
+//    int initFFmpeg();
+//    bool readFrame();
 
 };
 #endif

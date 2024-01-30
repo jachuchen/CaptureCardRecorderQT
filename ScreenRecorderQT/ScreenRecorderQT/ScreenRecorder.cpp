@@ -6,6 +6,8 @@
 
 #include <time.h>
 
+#include <iostream>
+
 using namespace std;
 
 ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, string outFilePath, string audioDevice) : rrs(rrs), vs(vs), status(RecordingStatus::recording), outFilePath(outFilePath), audioDevice(audioDevice) {
@@ -24,6 +26,8 @@ ScreenRecorder::ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, st
             std::cout << "-> Finished initAudioSource" << std::endl;
         }
         initOutputFile();
+
+
 #if defined __linux__
         memoryCheck_init(3000);  // ERROR
 #endif
@@ -113,7 +117,7 @@ void ScreenRecorder::snapshot(const std::string& filename)
         return ;
     }
 
-    int sws_flags = SWS_BICUBIC;
+    //int sws_flags = SWS_BICUBIC;
     AVFrame* result_frame = av_frame_alloc();
     result_frame->format = AV_PIX_FMT_RGB24;
     result_frame->width = codecContext->width;
@@ -208,6 +212,81 @@ void ScreenRecorder::snapshot(const std::string& filename)
 
     return ;
 }
+
+void ScreenRecorder::captureVideo(char *videobuffer, unsigned long int *length)
+{
+
+        avdevice_register_all();
+
+        // Open the input device (webcam)
+        AVFormatContext* formatContext = nullptr;
+        if (avformat_open_input(&formatContext, "video=SC0710 PCI, Video 01 Capture", av_find_input_format("dshow"), nullptr) != 0) {
+            std::cout<<"error 1";
+            return ;
+        }
+        // Find the video stream information
+        if (avformat_find_stream_info(formatContext, nullptr) < 0) {
+            // Handle error
+            std::cout<<"error 2";
+            return ;
+        }
+
+        const AVCodec* codec = nullptr;
+        int videoStreamIndex = -1;
+
+        // Find the video stream and its codec
+        for (unsigned int i = 0; i < formatContext->nb_streams; i++) {
+            if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                videoStreamIndex = i;
+                codec = avcodec_find_decoder(formatContext->streams[i]->codecpar->codec_id);
+                break;
+            }
+        }
+
+        if (!codec || videoStreamIndex == -1) {
+            // Handle error
+            std::cout<<"error 3";
+
+            return ;
+        }
+
+        AVCodecContext* codecContext = avcodec_alloc_context3(codec);
+        avcodec_parameters_to_context(codecContext, formatContext->streams[videoStreamIndex]->codecpar);
+
+        // Open the codec
+        if (avcodec_open2(codecContext, codec, nullptr) < 0) {
+            // Handle error
+            std::cout<<"error 4";
+
+            return ;
+        }
+
+
+//    // Allocate video frame and initialize buffer for image data
+
+    AVPacket packet;
+
+    if (av_read_frame(formatContext, &packet) >= 0) {
+        if (packet.size) {
+            // Decode video packet
+            *length = packet.size;
+                memcpy(videobuffer,packet.data, packet.size);
+
+        }
+
+        av_packet_unref(&packet);
+    }
+
+
+
+    // Cleanup
+    avformat_close_input(&formatContext);
+    avcodec_free_context(&codecContext);
+
+
+    return ;
+}
+
 
 function<void(void)> ScreenRecorder::make_error_handler(function<void(void)> f) {
     return [&]() {
@@ -748,18 +827,20 @@ void ScreenRecorder::getRawPackets() {
             // STATUS MUTEX UNLOCK
             ul.unlock();
 
-            if (status == RecordingStatus::recording)
+            avRawPkt = av_packet_alloc();
+            value = av_read_frame(avFmtCtx, avRawPkt);
+            if (value >= 0 && avRawPkt->size)
             {
-                avRawPkt = av_packet_alloc();
-                value = av_read_frame(avFmtCtx, avRawPkt);
-                if (value >= 0 && avRawPkt->size)
-                {
 
-                    //throw runtime_error(("Error in getting RawPacket" + to_string(value)).c_str());
-                    unique_lock<mutex> avRawPkt_queue_ul{avRawPkt_queue_mutex};
-                    avRawPkt_queue.push(avRawPkt);
-                    avRawPkt_queue_ul.unlock();
-                }
+
+
+                //throw runtime_error(("Error in getting RawPacket" + to_string(value)).c_str());
+                unique_lock<mutex> avRawPkt_queue_ul{avRawPkt_queue_mutex};
+
+                memcpy(preview,avRawPkt->data,avRawPkt->size);
+
+                avRawPkt_queue.push(avRawPkt);
+                avRawPkt_queue_ul.unlock();
             }
 
 #if defined __linux__
@@ -994,7 +1075,7 @@ void ScreenRecorder::acquireAudio() {
     if (!inPacket) {
         throw runtime_error("Cannot allocate an AVPacket for encoded video");
     }
-    //av_init_packet(inPacket);
+    av_init_packet(inPacket);
 
     //allocate space for a packet
     rawFrame = av_frame_alloc();
@@ -1110,7 +1191,7 @@ void ScreenRecorder::acquireAudio() {
                 add_samples_to_fifo(resampledData, rawFrame->nb_samples);
 
                 //raw frame ready
-                //av_init_packet(outPacket);
+                av_init_packet(outPacket);
                 outPacket->data = nullptr;
                 outPacket->size = 0;
 

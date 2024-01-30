@@ -23,6 +23,7 @@ class MainWindow : public QMainWindow {
     Q_OBJECT
 
    public:
+       unsigned  char * previewdata ;
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
     AreaSelector *areaSelector;

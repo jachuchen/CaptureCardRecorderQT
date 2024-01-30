@@ -10,21 +10,26 @@
 #include <QOpenGLBuffer>
 #include <QMouseEvent>
 #include <QThread>
+#include <QTimer>
+
 CPlayWidget_yuy2::CPlayWidget_yuy2 (QWidget *parent) : QOpenGLWidget(parent)
 {
-    imgheight = 2160;
-    imgwidth = 3840;
+    imgheight = 1080;
+    imgwidth = 1920;
 
                     m_pBufYuvHeightp = new unsigned char[1920*1080*2];
-                   FILE *f = fopen("c:\\temp\\fullhd.yuy2","rb");
-                   fread(m_pBufYuvHeightp,1920*1080*2,sizeof(BYTE),f) ;
-                   fclose(f);
+//                   FILE *f = fopen("c:\\temp\\fullhd.yuy2","rb");
+//                   fread(m_pBufYuvHeightp,1920*1080*2,sizeof(BYTE),f) ;
+//                   fclose(f);
 
     //setSurfaceType(QWindow::OpenGLSurface);
 
     connect(this, &CPlayWidget_yuy2::updateUi, this, &CPlayWidget_yuy2::onUpdateUi);
-
-    qDebug()<<   initFFmpeg();
+    auto timer = new QTimer(this);
+            QObject::connect(timer, &QTimer::timeout, [&] (){
+                update();
+            } );
+            timer->start(60);
 }
 
 CPlayWidget_yuy2::~CPlayWidget_yuy2()
@@ -34,23 +39,11 @@ CPlayWidget_yuy2::~CPlayWidget_yuy2()
         delete m_pBufYuvHeightp;
 }
 
-void CPlayWidget_yuy2::PlayOneFrame(BYTE* pFrameBuffer, ULONG nFrameBufferLen)
+void CPlayWidget_yuy2::PlayOneFrame(char* pFrameBuffer, ulong nFrameBufferLen)
 {
-    if(NULL == m_pYuvFile)
-    {
-        imgwidth = 1920;// RecorderCore::globalInstance()->m_nVideoWidth[0];
-        imgheight = 1080;//RecorderCore::globalInstance()->m_nVideoHeight[0];
 
-
-    }
-
+    qDebug() << "play one....";
     int nLen = nFrameBufferLen;
-    if(NULL == m_pBufYuvHeightp)
-    {
-        m_pBufYuvHeightp = new unsigned char[nLen];
-        qDebug("CPlayWidget_yuy2::PlayOneFrame new data memory. Len=%d width=%d height=%d\n",
-               nLen, imgwidth, imgheight);
-    }
 
     memcpy(m_pBufYuvHeightp,pFrameBuffer,nLen);
 
@@ -62,8 +55,8 @@ void CPlayWidget_yuy2::PlayOneFrame(BYTE* pFrameBuffer, ULONG nFrameBufferLen)
 void CPlayWidget_yuy2::onUpdateUi()
 {
 
-    if (!isFullScreen())
-        showFullScreen();
+//    if (!isFullScreen())
+//        showFullScreen();
     update();
 
 }
@@ -241,37 +234,17 @@ void CPlayWidget_yuy2::resizeGL(int w, int h)
 void CPlayWidget_yuy2::paintGL()
 {
 
-    //    funcs->glClearColor(0.f, 0.f, 0.4f, 0.f);
-    //    funcs->glClear(GL_COLOR_BUFFER_BIT);
-
-
-    const int targetFrameTime = 1000 / 60;  // 60 FPS
-    int elapsed = timer.elapsed();
-    if (elapsed < targetFrameTime) {
-        QThread::msleep(targetFrameTime - elapsed);
-    }
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    if (readFrame()) {
+    {
         funcs->glActiveTexture(GL_TEXTURE0);
         funcs->glBindTexture(GL_TEXTURE_2D, m_tex_yuyv);
-        //funcs->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, imgwidth/2 , imgheight, GL_RGBA, GL_UNSIGNED_BYTE, m_pBufYuvHeightp);
-        //    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, codecContext->width, codecContext->height, 0, GL_RGB, GL_UNSIGNED_BYTE, frame->data[0]);
-
-        funcs->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, imgwidth/2 , imgheight, GL_RGBA, GL_UNSIGNED_BYTE, frame->data[0]);
+        funcs->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, imgwidth/2 , imgheight, GL_RGBA, GL_UNSIGNED_BYTE, m_pBufYuvHeightp);
 
         funcs->glActiveTexture(GL_TEXTURE0);
         funcs->glBindTexture(GL_TEXTURE_2D, m_tex_yuyv);
         funcs->glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     }
-
-    // Restart the timer for the next frame
-    timer.restart();
-
-
-
-    av_packet_unref(&packet);
 
 
     update();
@@ -282,81 +255,3 @@ void CPlayWidget_yuy2::paintGL()
 }
 
 
-int CPlayWidget_yuy2::initFFmpeg() {
-    // Open the input device (webcam)
-    avdevice_register_all();
-
-    formatContext = nullptr;
-    if (avformat_open_input(&formatContext, "video=SC0710 PCI, Video 01 Capture", av_find_input_format("dshow"), nullptr) != 0) {
-        // Handle error
-        return -1;
-    }
-
-    // Find the video stream information
-    if (avformat_find_stream_info(formatContext, nullptr) < 0) {
-        // Handle error
-        return -2;
-    }
-
-    codec = nullptr;
-    videoStreamIndex = -1;
-
-    // Find the video stream and its codec
-    for (unsigned int i = 0; i < formatContext->nb_streams; i++) {
-        if (formatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
-            videoStreamIndex = i;
-            codec = avcodec_find_decoder(formatContext->streams[i]->codecpar->codec_id);
-            break;
-        }
-    }
-
-    if (!codec || videoStreamIndex == -1) {
-        // Handle error
-        return -3;
-    }
-
-    codecContext = avcodec_alloc_context3(codec);
-    avcodec_parameters_to_context(codecContext, formatContext->streams[videoStreamIndex]->codecpar);
-
-    // Open the codec
-    if (avcodec_open2(codecContext, codec, nullptr) < 0) {
-        // Handle error
-        return -4;
-    }
-
-
-    // Allocate video frame and initialize buffer for image data
-    frame = av_frame_alloc();
-    buffer = (uint8_t*)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_YUYV422, codecContext->width, codecContext->height, 1));
-    av_image_fill_arrays(frame->data, frame->linesize, buffer, AV_PIX_FMT_YUYV422, codecContext->width, codecContext->height, 1);
-
-}
-
-bool CPlayWidget_yuy2::readFrame()
-{
-
-    static int i  =0;
-    // Read the frame
-     qDebug() <<"He he....0";
-    if (av_read_frame(formatContext, &packet) >= 0) {
-         qDebug() <<"He he....1";
-        if (packet.stream_index == videoStreamIndex) {
-            // Decode video packet
-            avcodec_send_packet(codecContext, &packet);
-            avcodec_receive_frame(codecContext, frame);
-
-            qDebug() <<"He he....2";
-            // Convert the frame to RGB
-            //sws_scale(swsContext, frame->data, frame->linesize, 0, codecContext->height, frame->data, frame->linesize);
-
-
-            qDebug()<<i++;
-
-            return true;
-        }
-
-        //av_packet_unref(&packet);
-    }
-    //av_packet_unref(&packet);
-    return false;
-}

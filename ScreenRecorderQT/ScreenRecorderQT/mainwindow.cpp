@@ -201,6 +201,15 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent), ui(new Ui::MainWi
 
     //set the general properties for the elements of the window
     setGeneralDefaultProperties();
+
+
+    ui->widget->setVisible(false);
+
+    auto preview = new CPlayWidget_yuy2(ui->widget_8);
+    previewdata = preview->m_pBufYuvHeightp;
+    ui->widget_8->setLayout( new QHBoxLayout());
+    ui->widget_8->layout()->addWidget(preview);
+
 }
 
 MainWindow::~MainWindow() {
@@ -404,6 +413,8 @@ void MainWindow::on_pushButtonStart_clicked() {
     qDebug() << "minimize:: " << minimizeInSysTray;
     try {
         screenRecorder = make_unique<ScreenRecorder>(rrs, vs, outFilePath, deviceName);
+        screenRecorder ->preview = previewdata;
+
         std::cout << "Built ScreenRecorder Object" << std::endl;
         auto record_thread = std::thread{[&]() {
             try {

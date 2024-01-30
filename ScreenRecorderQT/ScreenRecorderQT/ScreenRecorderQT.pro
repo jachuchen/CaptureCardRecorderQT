@@ -19,6 +19,7 @@ SOURCES += \
     AreaSelectorButtons.cpp \
     GetAudioDevices.cpp \
     MemoryCheckLinux.cpp \
+    PlayWidget_yuy2.cpp \
     ScreenRecorder.cpp \
     main.cpp \
     mainwindow.cpp
@@ -28,6 +29,7 @@ HEADERS += \
     AreaSelectorButtons.h \
     GetAudioDevices.h \
     MemoryCheckLinux.h \
+    PlayWidget_yuy2.h \
     ScreenRecorder.h \
     mainwindow.h
 

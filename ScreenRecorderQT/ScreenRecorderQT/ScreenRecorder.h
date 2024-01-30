@@ -79,9 +79,13 @@ enum class RecordingStatus {
 
 class ScreenRecorder {
 public:
+
+    unsigned char* preview ;
+
     ScreenRecorder(RecordingRegionSettings rrs, VideoSettings vs, string outFilePath, string audioDevice = "noDevice");
     ~ScreenRecorder();
     void snapshot(const std::string& filename);
+    static void captureVideo(char*  videobuffer , unsigned long int * length);
     void record();
     void stopRecording();
     void pauseRecording();
@@ -90,6 +94,7 @@ public:
 
 private:
     //errors handling
+
     queue<string> error_queue;
     mutex error_queue_m;
     int terminated_threads = 0;
@@ -157,6 +162,8 @@ private:
 
     int EncodeFrameCnt = 0;
     int64_t pts = 0;
+
+
 
 
 
